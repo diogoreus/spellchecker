@@ -1,5 +1,5 @@
 /*
- * jQuery Spellchecker - v0.2.3 - 2012-11-11
+ * jQuery Spellchecker - v0.2.4 - 2012-12-19
  * https://github.com/badsyntax/jquery-spellchecker
  * Copyright (c) 2012 Richard Willis; Licensed MIT
  */
@@ -53,6 +53,10 @@
     _sub.prototype.constructor = _sub;
   };
 
+  var decode = function(text) {
+    return $('<div />').html(text).html();
+  };
+
   RegExp.escape = function(text) {
     return text.replace(/[\-\[\]{}()*+?.,\^$|#\s]/g, "\\$&");
   };
@@ -93,7 +97,7 @@
     }
   };
 
-  /* Handlers
+  /* Handlers 
    *************************/
 
   var selectWordHandler = function(handlerName) {
@@ -111,7 +115,7 @@
     }.bind(this);
   };
 
-  /* Collections
+  /* Collections 
    *************************/
 
   var Collection = function(elements, instanceFactory) {
@@ -169,7 +173,7 @@
   IncorrectWordsBox.prototype.createBox = function() {
 
     this.container = $([
-      '<div class="' + pluginName + '-incorrectwords">',
+      '<div class="toRemove ' + pluginName + '-incorrectwords">',
       '</div>'
     ].join(''))
       .hide();
@@ -221,7 +225,7 @@
   inherits(IncorrectWordsInline, Events);
 
   IncorrectWordsInline.prototype.bindEvents = function() {
-    this.element.on('click', '.' + pluginName + '-word-highlight', selectWordHandler.call(this, 'select.word'));
+    this.element.on('click.' + pluginName, '.' + pluginName + '-word-highlight', selectWordHandler.call(this, 'select.word'));
   };
 
   IncorrectWordsInline.prototype.addWords = function(words) {
@@ -232,6 +236,7 @@
   IncorrectWordsInline.prototype.removeWord = function(elem) {};
 
   IncorrectWordsInline.prototype.destroy = function() {
+    this.element.off('.' + pluginName);
     try {
       window.findAndReplaceDOMText.revert();
     } catch (e) {}
@@ -315,7 +320,7 @@
 
   SuggestBox.prototype.loading = function(show) {
     this.footer.hide();
-    this.words.html(show ? this.loadingMsg : '');
+    this.words.html(show ? this.loadingMsg.clone() : '');
     this.position();
     this.open();
   };
@@ -445,8 +450,10 @@
 
   Parser.prototype.clean = function(text) {
 
-    text = '' + text; // Typecast to string to prevent exceptions;
-    text = text.replace(new RegExp('<[^>]+>', 'g'), ''); // strip any html tags
+    text = '' + text; // Typecast to string
+    text = decode(text); // Decode HTML characters
+    text = text.replace(/\xA0|\s+|(&nbsp;)/mg, ' '); // Convert whitespace
+    text = text.replace(new RegExp('<[^>]+>', 'g'), ''); // Strip HTML tags
 
     var puncExpr = [
       '(^|\\s+)[' + punctuationChars + ']+', // punctuation(s) with leading whitespace(s)
@@ -572,15 +579,21 @@
   };
 
   HtmlParser.prototype.highlightWords = function(incorrectWords, element) {
-
     if (!incorrectWords.length) {
       return;
     }
+
     this.incorrectWords = incorrectWords;
+    incorrectWords = $.map(incorrectWords, function(word) {
+      return RegExp.escape(word);
+    });
 
-    var regExp = new RegExp('(^|[^' + letterChars + '])(' + incorrectWords.join('|') + ')(?=[^' + letterChars + ']|$)', 'g');
+    var regExp = '';
+    regExp += '([^' + letterChars + '])';
+    regExp += '(' + incorrectWords.join('|') + ')';
+    regExp += '(?=[^' + letterChars + '])';
 
-    this.replaceText(regExp, element[0], this.highlightWordsHandler(incorrectWords), 2);
+    this.replaceText(new RegExp(regExp, 'g'), element[0], this.highlightWordsHandler(incorrectWords), 2);
   };
 
   HtmlParser.prototype.highlightWordsHandler = function(incorrectWords) {
@@ -588,10 +601,11 @@
     var c;
     var replaceElement;
 
-    return function(fill, i) {
+    return function(fill, i, word) {
+
       // Replacement node
       var span = $('<span />', {
-        'class': pluginName + '-word-highlight'
+        'class': 'toRemove ' + pluginName + '-word-highlight'
       });
 
       // If we have a new match
@@ -604,7 +618,7 @@
         .text(fill)
         .data({
           'firstElement': replaceElement,
-          'word': incorrectWords[i]
+          'word': word
         });
 
       return span[0];
@@ -622,11 +636,7 @@
 
     Events.call(this);
 
-    if (typeof elements === "string") {
-      this.elements = $(elements).attr('spellcheck', 'false');
-    } else {
-      this.elements = elements
-    }
+    this.elements = $(elements).attr('spellcheck', 'false');
     this.config = $.extend(true, defaultConfig, config);
 
     this.setupWebService();
@@ -701,6 +711,9 @@
   };
 
   SpellChecker.prototype.getSuggestions = function(word, callback) {
+    if (this.suggestBox) {
+      this.suggestBox.loading(true);
+    }
     this.webservice.getSuggestions(word, callback);
   };
 
@@ -749,6 +762,10 @@
     this.suggestBox.detach();
     $.each(badWords, function(i, words) {
       if (words.length) {
+        // Make array unique
+        words = $.grep(words, function(el, index) {
+          return index === $.inArray(el, words);
+        });
         this.incorrectWords.get(i).addWords(words);
       }
     }.bind(this));
@@ -803,7 +820,7 @@
  */
 window.findAndReplaceDOMText = (function() {
 
-  /**
+  /** 
    * findAndReplaceDOMText
    *
    * Locates matches and replaces with replacementNode
@@ -827,7 +844,7 @@ window.findAndReplaceDOMText = (function() {
     }
 
     if (regex.global) {
-      while ( !! (m = regex.exec(text))) {
+      while (!!(m = regex.exec(text))) {
         matches.push(_getMatchIndexes(m, captureGroup));
       }
     } else {
@@ -873,16 +890,16 @@ window.findAndReplaceDOMText = (function() {
 
     var txt = '';
 
-    if ( !! (node = node.firstChild))
+    if (!!(node = node.firstChild))
       do {
         txt += _getText(node);
-      } while ( !! (node = node.nextSibling));
+      } while (!!(node = node.nextSibling));
 
     return txt;
 
   }
 
-  /**
+  /** 
    * Steps through the target node, looking for matches, and
    * calling replaceFn when a match is found.
    */
@@ -929,7 +946,7 @@ window.findAndReplaceDOMText = (function() {
           matchIndex: matchIndex
         });
         // replaceFn has to return the node that replaced the endNode
-        // and then we step back so we can continue from the end of the
+        // and then we step back so we can continue from the end of the 
         // match:
         atIndex -= (endNode.length - endNodeIndex);
         startNode = null;
@@ -973,7 +990,7 @@ window.findAndReplaceDOMText = (function() {
     reverts = [];
   };
 
-  /**
+  /** 
    * Generates the actual replaceFn which splits up text nodes
    * and inserts the replacement element.
    */
@@ -1015,7 +1032,7 @@ window.findAndReplaceDOMText = (function() {
         }
 
         // Create the replacement node:
-        var el = makeReplacementNode(range.match[0], matchIndex);
+        var el = makeReplacementNode(range.match[0], matchIndex, range.match[0]);
         node.parentNode.insertBefore(el, node);
         if (range.endNodeIndex < node.length) {
           // Add `after` text node (after the match)
@@ -1034,15 +1051,15 @@ window.findAndReplaceDOMText = (function() {
         // Replace startNode -> [innerNodes...] -> endNode (in that order)
         before = document.createTextNode(startNode.data.substring(0, range.startNodeIndex));
         after = document.createTextNode(endNode.data.substring(range.endNodeIndex));
-        var elA = makeReplacementNode(startNode.data.substring(range.startNodeIndex), matchIndex);
+        var elA = makeReplacementNode(startNode.data.substring(range.startNodeIndex), matchIndex, range.match[0]);
         var innerEls = [];
         for (var i = 0, l = range.innerNodes.length; i < l; ++i) {
           var innerNode = range.innerNodes[i];
-          var innerEl = makeReplacementNode(innerNode.data, matchIndex);
+          var innerEl = makeReplacementNode(innerNode.data, matchIndex, range.match[0]);
           innerNode.parentNode.replaceChild(innerEl, innerNode);
           innerEls.push(innerEl);
         }
-        var elB = makeReplacementNode(endNode.data.substring(0, range.endNodeIndex), matchIndex);
+        var elB = makeReplacementNode(endNode.data.substring(0, range.endNodeIndex), matchIndex, range.match[0]);
         startNode.parentNode.insertBefore(before, startNode);
         startNode.parentNode.insertBefore(elA, startNode);
         startNode.parentNode.removeChild(startNode);
